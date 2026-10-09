@@ -1,1 +1,241 @@
 
+name: Build BlueCoffeNet APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Write project files
+        run: |
+          mkdir -p app/src/main/java/ir/bluecoffenet/app
+          mkdir -p app/src/main/res/xml
+          mkdir -p app/src/main/res/values
+
+          cat > settings.gradle.kts << 'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "BlueCoffeNet"
+          include(":app")
+          EOF
+
+          cat > build.gradle.kts << 'EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+
+          cat > gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat > app/build.gradle.kts << 'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "ir.bluecoffenet.app"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "ir.bluecoffenet.app"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:allowBackup="false"
+                  android:label="BlueCoffeNet"
+                  android:usesCleartextTraffic="false"
+                  android:networkSecurityConfig="@xml/network_security_config"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/xml/network_security_config.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+              <base-config cleartextTrafficPermitted="false">
+                  <trust-anchors>
+                      <certificates src="system" />
+                  </trust-anchors>
+              </base-config>
+          </network-security-config>
+          EOF
+
+          cat > app/src/main/java/ir/bluecoffenet/app/MainActivity.kt << 'EOF'
+          package ir.bluecoffenet.app
+
+          import android.annotation.SuppressLint
+          import android.app.Activity
+          import android.content.Intent
+          import android.graphics.Bitmap
+          import android.net.http.SslError
+          import android.os.Bundle
+          import android.view.View
+          import android.view.ViewGroup
+          import android.webkit.*
+          import android.widget.FrameLayout
+          import android.widget.ProgressBar
+
+          class MainActivity : Activity() {
+              private val homeUrl = "https://bluecoffenet.ir"
+              private val allowedHost = "bluecoffenet.ir"
+              private lateinit var webView: WebView
+              private lateinit var progressBar: ProgressBar
+
+              @SuppressLint("SetJavaScriptEnabled")
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val root = FrameLayout(this)
+                  webView = WebView(this).apply {
+                      layoutParams = FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.MATCH_PARENT
+                      )
+                  }
+                  root.addView(webView)
+                  progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                      max = 100
+                      visibility = View.GONE
+                      layoutParams = FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT, 8
+                      )
+                  }
+                  root.addView(progressBar)
+                  setContentView(root)
+
+                  webView.settings.apply {
+                      javaScriptEnabled = true
+                      domStorageEnabled = true
+                      allowFileAccess = false
+                      allowContentAccess = false
+                      @Suppress("DEPRECATION") allowFileAccessFromFileURLs = false
+                      @Suppress("DEPRECATION") allowUniversalAccessFromFileURLs = false
+                      mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                      safeBrowsingEnabled = true
+                      setGeolocationEnabled(false)
+                      javaScriptCanOpenWindowsAutomatically = false
+                      setSupportMultipleWindows(false)
+                  }
+                  WebView.setWebContentsDebuggingEnabled(false)
+
+                  webView.webViewClient = object : WebViewClient() {
+                      override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                          val uri = request.url
+                          val isOwnSite = uri.scheme == "https" &&
+                              (uri.host == allowedHost || uri.host?.endsWith(".$allowedHost") == true)
+                          if (isOwnSite) return false
+                          if (uri.scheme in listOf("https", "mailto", "tel")) {
+                              try { startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (_: Exception) {}
+                          }
+                          return true
+                      }
+                      override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                          handler.cancel()
+                          showError(view)
+                      }
+                      override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                          if (request.isForMainFrame) showError(view)
+                      }
+                      override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                          progressBar.visibility = View.VISIBLE
+                      }
+                      override fun onPageFinished(view: WebView?, url: String?) {
+                          progressBar.visibility = View.GONE
+                      }
+                  }
+                  webView.webChromeClient = object : WebChromeClient() {
+                      override fun onPermissionRequest(request: PermissionRequest) = request.deny()
+                      override fun onGeolocationPermissionsShowPrompt(origin: String, callback: android.webkit.GeolocationPermissions.Callback) = callback.invoke(origin, false, false)
+                      override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                          progressBar.progress = newProgress
+                          progressBar.visibility = if (newProgress in 1..99) View.VISIBLE else View.GONE
+                      }
+                  }
+                  CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
+                  if (savedInstanceState == null) webView.loadUrl(homeUrl)
+                  else webView.restoreState(savedInstanceState)
+              }
+              private fun showError(view: WebView) {
+                  view.loadData(
+                      "<html><body dir='rtl' style='text-align:center;margin-top:30%;font-family:sans-serif'>" +
+                      "<h3>اتصال امن برقرار نشد</h3><p>اینترنت خود را بررسی کنید و دوباره تلاش کنید.</p>" +
+                      "</body></html>",
+                      "text/html; charset=utf-8", "UTF-8"
+                  )
+              }
+              @Deprecated("Deprecated in Java")
+              override fun onBackPressed() {
+                  if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+              }
+              override fun onSaveInstanceState(outState: Bundle) {
+                  super.onSaveInstanceState(outState)
+                  webView.saveState(outState)
+              }
+              override fun onDestroy() {
+                  webView.destroy()
+                  super.onDestroy()
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlueCoffeNet-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
