@@ -33,10 +33,21 @@ jobs:
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 
+      - name: Install Gradle
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d $HOME
+          echo "$HOME/gradle-8.7/bin" >> $GITHUB_PATH
+
       - name: Run build script
-        run: bash build.sh
+        run: |
+          bash build.sh
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: BlueCoffeNet-APK
