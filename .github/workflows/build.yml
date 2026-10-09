@@ -1,4 +1,4 @@
-#!/usr/bin/env bashname: Build APK
+name: Build APK
 
 on:
   push:
@@ -13,67 +13,19 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: 17
 
-      - name: Install Android SDK
-        run: |
-          sudo mkdir -p /opt/android-sdk/cmdline-tools
-          cd /tmp
-          sudo wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmd.zip
-          sudo unzip -q cmd.zip -d /opt/android-sdk/cmdline-tools
-          sudo mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest
-          sudo chmod -R 777 /opt/android-sdk
-          export ANDROID_HOME=/opt/android-sdk
-          export PATH=$PATH:/opt/android-sdk/cmdline-tools/latest/bin
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-          echo "ANDROID_HOME=/opt/android-sdk" >> $GITHUB_ENV
-          echo "/opt/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "/opt/android-sdk/platform-tools" >> $GITHUB_PATH
-
-      - name: Install Gradle 8.7
-        run: |
-          cd /tmp
-          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O gradle.zip
-          sudo unzip -q gradle.zip -d /opt
-          sudo chmod -R 777 /opt/gradle-8.7
-          echo "/opt/gradle-8.7/bin" >> $GITHUB_PATH
-
-      - name: Prepare project files
-        run: |
-          mkdir -p app/src/main/java/ir/bluecoffenet/app
-          mkdir -p app/src/main/res/xml
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
-          cat local.properties
-
-      - name: Download project files
-        run: |
-          base64 -d build_files.b64 > build_files.tar.gz
-          tar -xzf build_files.tar.gz
-          ls -la
-          find app -type f
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Build APK
-        run: |
-          gradle assembleDebug --no-daemon --stacktrace
-        env:
-          ANDROID_HOME: /opt/android-sdk
-          ANDROID_SDK_ROOT: /opt/android-sdk
+        run: gradle assembleDebug --no-daemon
+        working-directory: android-project
 
-      - name: Upload APK
+      - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BlueCoffeNet-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Show build results
-        if: always()
-        run: |
-          echo "=== Looking for APK ==="
-          find . -name "*.apk" 2>/dev/null || echo "No APK found"
-          echo "=== Build directory ==="
-          ls -la app/build/ 2>/dev/null || echo "No build directory"
+          name: apk
+          path: android-project/app/build/outputs/apk/debug/app-debug.apk
